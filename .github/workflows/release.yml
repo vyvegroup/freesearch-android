@@ -1,0 +1,135 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Generate signing keystore
+      run: |
+        keytool -genkeypair -v \
+          -keystore app/release.keystore \
+          -alias release \
+          -keyalg RSA \
+          -keysize 4096 \
+          -validity 10000 \
+          -storepass "${STORE_PASSWORD}" \
+          -keypass "${KEY_PASSWORD}" \
+          -dname "CN=FreeSearch, OU=Dev, O=FreeSearch, L=Internet, ST=Online, C=US"
+      env:
+        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'freesearch123' }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'freesearch123' }}
+
+    - name: Build Release APK (unsigned by gradle)
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleRelease -PSTORE_PASSWORD="${STORE_PASSWORD}" -PKEY_PASSWORD="${KEY_PASSWORD}" || true
+        # If keystore signing fails, build without signing
+        if [ ! -f app/build/outputs/apk/release/app-release.apk ]; then
+          echo "Building unsigned APK..."
+          cat > app/no-sign.gradle << 'GRADLEEOF'
+          android {
+              signingConfigs {
+                  release { storeFile file("/dev/null") }
+              }
+              buildTypes {
+                  release {
+                      signingConfig null
+                  }
+              }
+          }
+          GRADLEEOF
+          ./gradlew assembleRelease -Pandroid.injected.signing=false || true
+        fi
+
+    - name: Re-sign APK with v2 + v3
+      run: |
+        # Find the APK
+        APK=$(find app/build/outputs/apk/release/ -name "*.apk" | head -1)
+        echo "Found APK: $APK"
+        if [ -z "$APK" ]; then
+          echo "ERROR: No APK found!"
+          ls -laR app/build/outputs/ 2>/dev/null || echo "No outputs dir"
+          exit 1
+        fi
+
+        # Get latest build-tools version
+        BT_VERSION=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -1)
+        echo "Build-tools: $BT_VERSION"
+
+        # Zipalign
+        $ANDROID_HOME/build-tools/$BT_VERSION/zipalign -f 4 "$APK" app/build/outputs/apk/release/app-release-aligned.apk
+
+        # Sign with v2 + v3 (v1 disabled)
+        $ANDROID_HOME/build-tools/$BT_VERSION/apksigner sign \
+          --ks app/release.keystore \
+          --ks-key-alias release \
+          --ks-pass "pass:${STORE_PASSWORD}" \
+          --key-pass "pass:${KEY_PASSWORD}" \
+          --v1-signing-enabled false \
+          --v2-signing-enabled true \
+          --v3-signing-enabled true \
+          --out app/build/outputs/apk/release/FreeSearch-v1.0.0-signed.apk \
+          app/build/outputs/apk/release/app-release-aligned.apk
+
+        # Verify signatures
+        echo "=== Signature Verification ==="
+        $ANDROID_HOME/build-tools/$BT_VERSION/apksigner verify --print-certs app/build/outputs/apk/release/FreeSearch-v1.0.0-signed.apk
+
+        # Show APK info
+        echo "=== APK Size ==="
+        ls -lh app/build/outputs/apk/release/FreeSearch-v1.0.0-signed.apk
+      env:
+        STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'freesearch123' }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'freesearch123' }}
+
+    - name: Upload APK to Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v1.0.0
+        name: "FreeSearch v1.0.0 - Android 7+ Signed APK v2+v3"
+        body: |
+          ## FreeSearch v1.0.0
+
+          ### Features
+          - Full search engine app (no content filtering)
+          - DuckDuckGo integration (no SafeSearch)
+          - Android 7.0+ (API 24) support
+          - APK Signed v2 + v3
+          - WebView-based, lightweight and fast
+          - Dark/Light theme support
+          - Home, Back navigation
+
+          ### Installation
+          1. Download `FreeSearch-v1.0.0-signed.apk`
+          2. Enable "Install from unknown sources" in Settings
+          3. Install the APK
+
+          ### Signature Verification
+          ```
+          apksigner verify --print-certs FreeSearch-v1.0.0-signed.apk
+          ```
+        files: app/build/outputs/apk/release/FreeSearch-v1.0.0-signed.apk
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

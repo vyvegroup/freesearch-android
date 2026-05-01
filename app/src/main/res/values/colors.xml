@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="purple_500">#6200EE</color>
+    <color name="purple_700">#3700B3</color>
+    <color name="bg_main">#F5F5F5</color>
+    <color name="surface_bar">#FFFFFF</color>
+    <color name="text_primary">#1A1A1A</color>
+    <color name="hint_color">#9E9E9E</color>
+    <color name="search_bg">#EEEEEE</color>
+    <color name="accent">#6200EE</color>
+</resources>

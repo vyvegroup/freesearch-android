@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.search.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.search.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    signingConfigs {
+        release {
+            def ksFile = file("release.keystore")
+            if (ksFile.exists()) {
+                storeFile ksFile
+                storePassword System.getenv("STORE_PASSWORD") ?: "freesearch123"
+                keyAlias System.getenv("KEY_ALIAS") ?: "release"
+                keyPassword System.getenv("KEY_PASSWORD") ?: "freesearch123"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+            v1SigningEnabled false
+            v2SigningEnabled true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.webkit:webkit:1.9.0'
+}
